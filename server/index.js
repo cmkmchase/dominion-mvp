@@ -18,8 +18,10 @@ const app = express();
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 
-// Serve client
+// Serve client and shared
 app.use(express.static(join(__dirname, '../client')));
+app.use(express.static(join(__dirname, '../shared')));
+
 app.get('/', (req, res) => {
   res.sendFile(join(__dirname, '../client/index.html'));
 });
