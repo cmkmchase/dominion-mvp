@@ -1,216 +1,219 @@
-import config from '../shared/config.js';
+/**
+ * Dominion.io — Canvas Renderer
+ * Draws map, provinces, units, UI overlays
+ */
+
+import { RENDERING } from '../shared/config.js';
 
 export class Renderer {
   constructor(canvas, camera) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.camera = camera;
-    this.playerColor = '#4a90d9';
   }
-  
-  setPlayerColor(color) {
-    this.playerColor = color;
-  }
-  
-  clear() {
-    this.ctx.fillStyle = '#0a0e14';
+
+  /**
+   * Clear and redraw entire frame
+   */
+  render(provinces, gameState = {}) {
+    // Clear
+    this.ctx.fillStyle = '#0a0a0a';
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-  }
-  
-  drawProvince(prov, isScouted = true) {
-    const ctx = this.ctx;
-    const owner = prov.owner;
-    const ownerColor = owner === null ? '#444' : 
-      (owner === 'self' ? this.playerColor : `hsl(${owner * 137 % 360}, 70%, 50%)`);
-    
-    // Fill polygon
-    ctx.beginPath();
-    const [first, ...rest] = prov.pts;
-    const [fx, fy] = this.camera.worldToScreen(first[0], first[1]);
-    ctx.moveTo(fx, fy);
-    for (const [x, y] of rest) {
-      const [sx, sy] = this.camera.worldToScreen(x, y);
-      ctx.lineTo(sx, sy);
-    }
-    ctx.closePath();
-    
-    // Blend biome + owner color
-    const biome = config.BIOMES[prov.biome];
-    ctx.fillStyle = this.blendColors(biome.color, ownerColor, 0.65);
-    ctx.fill();
-    
-    // Border
-    ctx.strokeStyle = owner === null ? '#334' : ownerColor;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  }
-  
-  drawBorders(provinces) {
-    const ctx = this.ctx;
-    // Political borders (owner changes)
-    for (const prov of provinces) {
-      for (const adjId of prov.adj) {
-        const adj = provinces.find(p => p.id === adjId);
-        if (!adj || prov.owner === adj.owner) continue;
-        
-        // Draw thick border between different owners
-        const [p1, p2] = this.findSharedEdge(prov.pts, adj.pts);
-        if (!p1 || !p2) continue;
-        const [sx1, sy1] = this.camera.worldToScreen(p1[0], p1[1]);
-        const [sx2, sy2] = this.camera.worldToScreen(p2[0], p2[1]);
-        
-        ctx.beginPath();
-        ctx.moveTo(sx1, sy1);
-        ctx.lineTo(sx2, sy2);
-        ctx.strokeStyle = '#ff6b6b';
-        ctx.lineWidth = 2.5 / this.camera.zoom;
-        ctx.stroke();
-      }
-    }
-  }
-  
-  findSharedEdge(pts1, pts2) {
-    // Simplified: return first close pair
-    for (const p1 of pts1) {
-      for (const p2 of pts2) {
-        const dx = p1[0]-p2[0], dy = p1[1]-p2[1];
-        if (dx*dx + dy*dy < 100) return [p1, p2];
-      }
-    }
-    return [null, null];
-  }
-  
-  drawOwnershipMarkers(provinces) {
-    const ctx = this.ctx;
-    for (const prov of provinces) {
-      if (prov.owner === null) continue;
-      const [sx, sy] = this.camera.worldToScreen(prov.cx, prov.cy);
-      const ownerColor = prov.owner === 'self' ? this.playerColor : 
-        `hsl(${prov.owner * 137 % 360}, 70%, 50%)`;
-      
-      ctx.fillStyle = ownerColor;
-      ctx.fillRect(sx - 3, sy - 3, 6, 6);
-      
-      // Unit count at medium zoom
-      if (this.camera.zoom >= 0.4 && prov.units?.length > 0) {
-        ctx.fillStyle = '#fff';
-        ctx.font = '10px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillText(prov.units.length, sx, sy - 8);
-      }
-    }
-  }
-  
-  drawSelection(prov) {
-    if (!prov) return;
-    const ctx = this.ctx;
-    ctx.beginPath();
-    const [first, ...rest] = prov.pts;
-    const [fx, fy] = this.camera.worldToScreen(first[0], first[1]);
-    ctx.moveTo(fx, fy);
-    for (const [x, y] of rest) {
-      const [sx, sy] = this.camera.worldToScreen(x, y);
-      ctx.lineTo(sx, sy);
-    }
-    ctx.closePath();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2 / this.camera.zoom;
-    ctx.setLineDash([5, 3]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-  
-  drawValidTargets(prov, game) {
-    if (!prov || prov.owner !== game.playerId) return;
-    const ctx = this.ctx;
-    for (const adjId of prov.adj) {
-      const adj = game.provinces.get(adjId);
-      if (!adj) continue;
-      const [sx, sy] = this.camera.worldToScreen(adj.cx, adj.cy);
-      ctx.beginPath();
-      ctx.arc(sx, sy, 8, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255, 165, 0, 0.7)';
-      ctx.lineWidth = 2 / this.camera.zoom;
-      ctx.stroke();
-    }
-  }
-  
-  drawMarchArrow(from, to) {
-    const ctx = this.ctx;
-    const [sx1, sy1] = this.camera.worldToScreen(from.cx, from.cy);
-    const [sx2, sy2] = this.camera.worldToScreen(to.cx, to.cy);
-    
-    ctx.beginPath();
-    ctx.moveTo(sx1, sy1);
-    ctx.lineTo(sx2, sy2);
-    ctx.strokeStyle = '#ffd93d';
-    ctx.lineWidth = 2 / this.camera.zoom;
-    ctx.setLineDash([4, 4]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    
-    // Arrowhead
-    const angle = Math.atan2(sy2 - sy1, sx2 - sx1);
-    ctx.beginPath();
-    ctx.moveTo(sx2, sy2);
-    ctx.lineTo(sx2 - 8 * Math.cos(angle - 0.4), sy2 - 8 * Math.sin(angle - 0.4));
-    ctx.lineTo(sx2 - 8 * Math.cos(angle + 0.4), sy2 - 8 * Math.sin(angle + 0.4));
-    ctx.closePath();
-    ctx.fillStyle = '#ffd93d';
-    ctx.fill();
-  }
-  
-  blendColors(c1, c2, t) {
-    const parse = (c) => {
-      if (c.startsWith('#')) {
-        const hex = c.slice(1);
-        return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16)];
-      }
-      return [100, 100, 100];
-    };
-    const [r1,g1,b1] = parse(c1), [r2,g2,b2] = parse(c2);
-    const r = Math.round(r1 + (r2-r1)*t);
-    const g = Math.round(g1 + (g2-g1)*t);
-    const b = Math.round(b1 + (b2-b1)*t);
-    return `rgb(${r},${g},${b})`;
-  }
-  
-  render(game) {
-    this.clear();
-    
-    // Setup camera transform
+
+    // Save context state
     this.ctx.save();
-    
-    // Draw provinces (back to front)
-    const provList = [...game.provinces.values()];
-    for (const prov of provList) {
-      this.drawProvince(prov);
+
+    // Apply camera transform
+    this.camera.apply(this.ctx);
+
+    // Get viewport to cull rendering
+    const bounds = this.camera.getViewportBounds();
+
+    // Draw provinces
+    for (const province of provinces) {
+      this.drawProvince(province, bounds, gameState);
     }
-    
+
     // Draw borders
-    this.drawBorders(provList);
-    
-    // Draw ownership markers
-    this.drawOwnershipMarkers(provList);
-    
-    // Draw selection
-    if (game.selectedProv) {
-      this.drawSelection(game.provinces.get(game.selectedProv));
+    this.ctx.strokeStyle = RENDERING.BORDER_COLOR;
+    this.ctx.lineWidth = RENDERING.BORDER_WIDTH / this.camera.zoom;
+    for (const province of provinces) {
+      for (const adjId of province.adj) {
+        const other = provinces.find(p => p.id === adjId);
+        if (!other) continue;
+        // Only draw border once (when id < adjId)
+        if (province.id < adjId && province.owner !== other.owner) {
+          this.drawBorder(province, other);
+        }
+      }
     }
-    
-    // Draw valid targets
-    if (game.marchSource) {
-      this.drawValidTargets(game.provinces.get(game.marchSource), game);
+
+    // Restore context
+    this.ctx.restore();
+
+    // Draw screen-space UI (zoom labels, unit counts, morale bars)
+    this.drawScreenSpaceUI(provinces, gameState);
+  }
+
+  /**
+   * Draw single province polygon with fill
+   */
+  drawProvince(province, bounds, gameState) {
+    // Culling check
+    const margin = 200;
+    if (
+      province.cx < bounds.minX - margin ||
+      province.cx > bounds.maxX + margin ||
+      province.cy < bounds.minY - margin ||
+      province.cy > bounds.maxY + margin
+    ) {
+      return;
     }
-    
-    // Draw march preview
-    if (game.marchSource && game.selectedProv && game.selectedProv !== game.marchSource) {
-      this.drawMarchArrow(
-        game.provinces.get(game.marchSource),
-        game.provinces.get(game.selectedProv)
+
+    const isScouted = gameState.scoutedProvinces && gameState.scoutedProvinces.has(province.id);
+
+    if (!isScouted && !gameState.playerId) {
+      // Not scouted and no player context: render dark
+      this.ctx.fillStyle = RENDERING.FOG_COLOR;
+    } else if (!isScouted) {
+      // Fog of war active
+      this.ctx.fillStyle = RENDERING.FOG_COLOR;
+    } else {
+      // Draw biome color
+      const biomeColor = province.color || '#2e4a22';
+      if (province.owner && gameState.playerColor) {
+        // Blend biome with owner color
+        this.ctx.fillStyle = this.blendColors(
+          biomeColor,
+          gameState.playerColor,
+          RENDERING.BIOME_BLEND_RATIO
+        );
+      } else {
+        this.ctx.fillStyle = biomeColor;
+      }
+    }
+
+    // Draw polygon
+    if (province.pts && province.pts.length > 0) {
+      this.ctx.beginPath();
+      const [firstX, firstY] = province.pts[0];
+      this.ctx.moveTo(firstX, firstY);
+      for (let i = 1; i < province.pts.length; i++) {
+        const [x, y] = province.pts[i];
+        this.ctx.lineTo(x, y);
+      }
+      this.ctx.closePath();
+      this.ctx.fill();
+    }
+
+    // Draw ownership marker
+    if (isScouted && province.owner) {
+      const markerSize = RENDERING.MARKER_SIZE;
+      this.ctx.fillStyle = gameState.playerColor || '#ffffff';
+      this.ctx.fillRect(
+        province.cx - markerSize / 2,
+        province.cy - markerSize / 2,
+        markerSize,
+        markerSize
       );
     }
-    
-    this.ctx.restore();
+  }
+
+  /**
+   * Draw political border between two provinces
+   */
+  drawBorder(prov1, prov2) {
+    // Simple: line between centroids
+    this.ctx.beginPath();
+    this.ctx.moveTo(prov1.cx, prov1.cy);
+    this.ctx.lineTo(prov2.cx, prov2.cy);
+    this.ctx.stroke();
+  }
+
+  /**
+   * Draw screen-space UI (zoom-gated labels, unit counts, morale bars)
+   */
+  drawScreenSpaceUI(provinces, gameState) {
+    const zoom = this.camera.zoom;
+
+    for (const province of provinces) {
+      const isScouted = gameState.scoutedProvinces && gameState.scoutedProvinces.has(province.id);
+      if (!isScouted) continue;
+
+      const [screenX, screenY] = this.camera.worldToScreen(province.cx, province.cy);
+
+      // Unit count (zoom >= 0.4x)
+      if (zoom >= RENDERING.UNIT_COUNT_MIN_ZOOM && province.unitCount !== undefined) {
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.font = `${12 / zoom}px Arial`;
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(province.unitCount, screenX, screenY - 20 / zoom);
+      }
+
+      // Province name (zoom >= 1.0x)
+      if (zoom >= RENDERING.NAME_LABEL_MIN_ZOOM) {
+        this.ctx.fillStyle = '#cccccc';
+        this.ctx.font = `bold ${14 / zoom}px Arial`;
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(province.name, screenX, screenY + 30 / zoom);
+      }
+
+      // Morale bar (zoom >= 1.0x)
+      if (zoom >= RENDERING.MORALE_BAR_MIN_ZOOM && province.morale !== undefined) {
+        const barWidth = 40 / zoom;
+        const barHeight = 4 / zoom;
+        const moraleFraction = province.morale / 100;
+        this.ctx.fillStyle = '#333333';
+        this.ctx.fillRect(
+          screenX - barWidth / 2,
+          screenY + 40 / zoom,
+          barWidth,
+          barHeight
+        );
+        this.ctx.fillStyle = this.moraleColor(moraleFraction);
+        this.ctx.fillRect(
+          screenX - barWidth / 2,
+          screenY + 40 / zoom,
+          barWidth * moraleFraction,
+          barHeight
+        );
+      }
+    }
+  }
+
+  /**
+   * Blend two colors
+   */
+  blendColors(color1, color2, ratio) {
+    const c1 = this.hexToRgb(color1);
+    const c2 = this.hexToRgb(color2);
+    const r = Math.round(c1.r * ratio + c2.r * (1 - ratio));
+    const g = Math.round(c1.g * ratio + c2.g * (1 - ratio));
+    const b = Math.round(c1.b * ratio + c2.b * (1 - ratio));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  /**
+   * Hex to RGB
+   */
+  hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result
+      ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16),
+        }
+      : { r: 0, g: 0, b: 0 };
+  }
+
+  /**
+   * Color morale bar by value
+   */
+  moraleColor(fraction) {
+    if (fraction >= 0.75) return '#00ff00'; // Green
+    if (fraction >= 0.5) return '#ffff00'; // Yellow
+    if (fraction >= 0.3) return '#ff8800'; // Orange
+    return '#ff0000'; // Red
   }
 }

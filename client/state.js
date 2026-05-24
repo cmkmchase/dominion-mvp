@@ -1,62 +1,75 @@
-import config from '../shared/config.js';
+/**
+ * Dominion.io — Client-side game state
+ * Mirrors server state, allows optimistic updates
+ */
 
 export class GameState {
-  constructor() {
-    this.map = null; // { provinces: [], W, H }
-    this.provinces = new Map(); // id -> runtime state
-    this.players = new Map();
-    this.playerId = null;
-    this.playerName = '';
-    this.playerColor = '';
+  constructor(provinces = [], playerId = null) {
+    this.provinces = provinces;
+    this.playerId = playerId;
+    this.playerColor = '#ffffff';
     this.gold = 0;
     this.day = 1;
-    this.selectedProv = null;
-    this.marchSource = null;
+    this.year = 1;
+    this.scoutedProvinces = new Set();
   }
-  
-  init(mapData) {
-    this.map = mapData;
-    this.provinces.clear();
-    for (const p of mapData.provinces) {
-      this.provinces.set(p.id, {
-        ...p,
-        owner: null,
-        units: [],
-        fortified: false,
-        battle: null
-      });
+
+  /**
+   * Get province by ID
+   */
+  getProvince(id) {
+    return this.provinces.find(p => p.id === id);
+  }
+
+  /**
+   * Get unit count in province
+   */
+  getUnitCount(provId) {
+    const prov = this.getProvince(provId);
+    return prov && prov.units ? prov.units.length : 0;
+  }
+
+  /**
+   * Update province from server
+   */
+  updateProvince(provData) {
+    const prov = this.getProvince(provData.id);
+    if (prov) {
+      Object.assign(prov, provData);
+      prov.unitCount = this.getUnitCount(provData.id);
     }
   }
-  
-  updateProvince(data) {
-    const prov = this.provinces.get(data.id);
-    if (!prov) return;
-    if (data.owner !== undefined) prov.owner = data.owner;
-    if (data.units !== undefined) prov.units = data.units;
-    if (data.fortified !== undefined) prov.fortified = data.fortified;
-    if (data.battle !== undefined) prov.battle = data.battle;
+
+  /**
+   * Update time
+   */
+  setTime(day, year) {
+    this.day = day;
+    this.year = year;
   }
-  
+
+  /**
+   * Add/remove scouted province
+   */
+  addScoutedProvince(id) {
+    this.scoutedProvinces.add(id);
+  }
+
+  removeScoutedProvince(id) {
+    this.scoutedProvinces.delete(id);
+  }
+
+  /**
+   * Get owned provinces
+   */
   getOwnedProvinces() {
-    const list = [];
-    for (const prov of this.provinces.values()) {
-      if (prov.owner === this.playerId) list.push(prov);
-    }
-    return list;
+    return this.provinces.filter(p => p.owner === this.playerId);
   }
-  
-  canRecruit(prov, count) {
-    if (prov.owner !== this.playerId) return false;
-    const template = config.UNITS.infantry;
-    const slotsUsed = prov.units.reduce((sum, u) => sum + config.UNITS[u.type].slots, 0);
-    const slotsAvail = prov.capBase - slotsUsed;
-    return count > 0 && this.gold >= count * template.cost && count <= slotsAvail;
-  }
-  
-  canMarch(from, to, count) {
-    if (from.owner !== this.playerId) return false;
-    if (!from.adj.includes(to.id)) return false;
-    const available = from.units.filter(u => u.type === 'infantry').length;
-    return count > 0 && count <= available;
+
+  /**
+   * Get capital province
+   */
+  getCapital() {
+    return this.getOwnedProvinces()[0] || null;
   }
 }
